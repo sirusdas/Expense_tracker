@@ -407,7 +407,7 @@ class MerchantCategorizer {
           confidence: 0.95,
         );
       }
-      if (lowerMsg.contains('towards credit card') || lowerMsg.contains('card bill') || lowerMsg.contains('outstanding payment')) {
+      if (RegExp(r'\b(?:towards\s+(?:.*?\s+)?credit\s*card|received\s+towards\s+(?:.*?\s+)?card|card\s*bill|outstanding\s*payment|credit\s*card\s*payment|payment\s+towards\s+(?:.*?\s+)?card)\b', caseSensitive: false).hasMatch(lowerMsg)) {
         return CategorizationResult(
           cleanMerchant: 'Credit Card Bill Payment',
           category: 'Bills & Utilities',

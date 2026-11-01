@@ -49,12 +49,14 @@ class HistoryScreen extends StatefulWidget {
   final String? initialCategory;
   final String? initialFilterType; // 'All', 'Expense', 'Income'
   final DateTime? initialMonth; // e.g. when navigated from Analytics
+  final String? initialCard; // e.g. when navigated from Cards Analytics / Settings
 
   const HistoryScreen({
     super.key,
     this.initialCategory,
     this.initialFilterType,
     this.initialMonth,
+    this.initialCard,
   });
 
   @override
@@ -76,6 +78,8 @@ class HistoryScreenState extends State<HistoryScreen> {
   String _searchQuery = '';
   String _selectedCategory = 'All';
   String _selectedFilterType = 'All'; // 'All', 'Expense', 'Income'
+  TransactionSortOrder _selectedSortOrder = TransactionSortOrder.dateDesc;
+  String? _selectedCard;
 
   TimeFilterPreset _selectedTimePreset = TimeFilterPreset.allTime;
   DateTime? _filterMonth; // When a specific month is chosen (e.g. from Analytics)
@@ -112,7 +116,8 @@ class HistoryScreenState extends State<HistoryScreen> {
     super.didUpdateWidget(oldWidget);
     if (widget.initialCategory != oldWidget.initialCategory ||
         widget.initialFilterType != oldWidget.initialFilterType ||
-        widget.initialMonth != oldWidget.initialMonth) {
+        widget.initialMonth != oldWidget.initialMonth ||
+        widget.initialCard != oldWidget.initialCard) {
       _applyInitialFilters();
       _loadFilteredData();
     }
@@ -128,6 +133,9 @@ class HistoryScreenState extends State<HistoryScreen> {
     if (widget.initialMonth != null) {
       _filterMonth = widget.initialMonth;
       _selectedTimePreset = TimeFilterPreset.specificMonth;
+    }
+    if (widget.initialCard != null) {
+      _selectedCard = widget.initialCard;
     }
   }
 
@@ -234,6 +242,7 @@ class HistoryScreenState extends State<HistoryScreen> {
         type: _currentTransactionType,
         startDate: startDate,
         endDate: endDate,
+        cardReference: _selectedCard,
       );
 
       // Determine current loaded count to prevent list truncation on silent reloads
@@ -251,6 +260,8 @@ class HistoryScreenState extends State<HistoryScreen> {
         type: _currentTransactionType,
         startDate: startDate,
         endDate: endDate,
+        sortOrder: _selectedSortOrder,
+        cardReference: _selectedCard,
       );
 
       if (mounted) {
@@ -285,6 +296,8 @@ class HistoryScreenState extends State<HistoryScreen> {
         type: _currentTransactionType,
         startDate: startDate,
         endDate: endDate,
+        sortOrder: _selectedSortOrder,
+        cardReference: _selectedCard,
       );
 
       if (mounted) {
@@ -374,6 +387,8 @@ class HistoryScreenState extends State<HistoryScreen> {
       _selectedCategory = 'All';
       _selectedFilterType = 'All';
       _selectedTimePreset = TimeFilterPreset.allTime;
+      _selectedSortOrder = TransactionSortOrder.dateDesc;
+      _selectedCard = null;
       _filterMonth = null;
       _customDateRange = null;
     });
@@ -384,7 +399,123 @@ class HistoryScreenState extends State<HistoryScreen> {
     return _searchQuery.isNotEmpty ||
         _selectedCategory != 'All' ||
         _selectedFilterType != 'All' ||
-        _selectedTimePreset != TimeFilterPreset.allTime;
+        _selectedTimePreset != TimeFilterPreset.allTime ||
+        _selectedSortOrder != TransactionSortOrder.dateDesc ||
+        _selectedCard != null;
+  }
+
+  void _showSortOrderPickerSheet(BuildContext context) {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.black12,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(Icons.sort_rounded, color: theme.colorScheme.primary, size: 22),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Sort Transactions',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Choose how transactions are ordered in the history list.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ...TransactionSortOrder.values.map((order) {
+                  final isSelected = _selectedSortOrder == order;
+                  IconData icon;
+                  switch (order) {
+                    case TransactionSortOrder.dateDesc:
+                      icon = Icons.calendar_today_rounded;
+                      break;
+                    case TransactionSortOrder.dateAsc:
+                      icon = Icons.history_rounded;
+                      break;
+                    case TransactionSortOrder.amountDesc:
+                      icon = Icons.arrow_downward_rounded;
+                      break;
+                    case TransactionSortOrder.amountAsc:
+                      icon = Icons.arrow_upward_rounded;
+                      break;
+                  }
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? theme.colorScheme.primary.withValues(alpha: isDark ? 0.2 : 0.1)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      leading: Icon(
+                        icon,
+                        color: isSelected ? theme.colorScheme.primary : (isDark ? Colors.white70 : Colors.black87),
+                        size: 20,
+                      ),
+                      title: Text(
+                        order.displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          color: isSelected ? theme.colorScheme.primary : null,
+                        ),
+                      ),
+                      trailing: isSelected
+                          ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary, size: 20)
+                          : null,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        Navigator.pop(ctx);
+                        if (_selectedSortOrder != order) {
+                          setState(() {
+                            _selectedSortOrder = order;
+                          });
+                          _loadFilteredData();
+                        }
+                      },
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   String get _timeFilterLabel {
@@ -869,11 +1000,12 @@ class HistoryScreenState extends State<HistoryScreen> {
                         ),
                         const SizedBox(height: 10),
 
-                        // Row 2: Category & Time Preset Filter
+                        // Row 2: Category, Time Preset & Sort Filter
                         Row(
                           children: [
                             // Category Filter Button
                             Expanded(
+                              flex: 4,
                               child: Material(
                                 color: Colors.transparent,
                                 child: InkWell(
@@ -887,7 +1019,7 @@ class HistoryScreenState extends State<HistoryScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   child: Container(
                                     height: 42,
-                                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
                                     decoration: BoxDecoration(
                                       color: _selectedCategory != 'All'
                                           ? Category.getColor(_selectedCategory).withValues(alpha: isDark ? 0.22 : 0.12)
@@ -905,8 +1037,8 @@ class HistoryScreenState extends State<HistoryScreen> {
                                     child: Row(
                                       children: [
                                         Container(
-                                          width: 26,
-                                          height: 26,
+                                          width: 24,
+                                          height: 24,
                                           decoration: BoxDecoration(
                                             color: _selectedCategory == 'All'
                                                 ? (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0))
@@ -917,19 +1049,19 @@ class HistoryScreenState extends State<HistoryScreen> {
                                             _selectedCategory == 'All'
                                                 ? Icons.grid_view_rounded
                                                 : Category.getMaterialIcon(_selectedCategory),
-                                            size: 14,
+                                            size: 13,
                                             color: _selectedCategory == 'All'
                                                 ? (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569))
                                                 : Category.getColor(_selectedCategory),
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
-                                            _selectedCategory == 'All' ? 'All Categories' : _selectedCategory,
+                                            _selectedCategory == 'All' ? 'All Cats' : _selectedCategory,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              fontSize: 12.5,
+                                              fontSize: 12,
                                               fontWeight: FontWeight.w600,
                                               color: _selectedCategory != 'All'
                                                   ? (isDark ? Colors.white : Category.getColor(_selectedCategory))
@@ -939,7 +1071,7 @@ class HistoryScreenState extends State<HistoryScreen> {
                                         ),
                                         Icon(
                                           Icons.keyboard_arrow_down_rounded,
-                                          size: 18,
+                                          size: 16,
                                           color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                         ),
                                       ],
@@ -948,10 +1080,11 @@ class HistoryScreenState extends State<HistoryScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
 
-                             // Time Filter Picker Button
+                            // Time Filter Picker Button
                             Expanded(
+                              flex: 4,
                               child: Material(
                                 color: Colors.transparent,
                                 child: InkWell(
@@ -959,7 +1092,7 @@ class HistoryScreenState extends State<HistoryScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   child: Container(
                                     height: 42,
-                                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
                                     decoration: BoxDecoration(
                                       color: _selectedTimePreset != TimeFilterPreset.allTime
                                           ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.22 : 0.12)
@@ -977,8 +1110,8 @@ class HistoryScreenState extends State<HistoryScreen> {
                                     child: Row(
                                       children: [
                                         Container(
-                                          width: 26,
-                                          height: 26,
+                                          width: 24,
+                                          height: 24,
                                           decoration: BoxDecoration(
                                             color: _selectedTimePreset == TimeFilterPreset.allTime
                                                 ? (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0))
@@ -987,19 +1120,19 @@ class HistoryScreenState extends State<HistoryScreen> {
                                           ),
                                           child: Icon(
                                             _getPresetIcon(_selectedTimePreset),
-                                            size: 14,
+                                            size: 13,
                                             color: _selectedTimePreset == TimeFilterPreset.allTime
                                                 ? (isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569))
                                                 : const Color(0xFF2563EB),
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
                                             _timeFilterLabel,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              fontSize: 12.5,
+                                              fontSize: 12,
                                               fontWeight: FontWeight.w600,
                                               color: _selectedTimePreset != TimeFilterPreset.allTime
                                                   ? (isDark ? Colors.white : const Color(0xFF2563EB))
@@ -1009,11 +1142,60 @@ class HistoryScreenState extends State<HistoryScreen> {
                                         ),
                                         Icon(
                                           Icons.keyboard_arrow_down_rounded,
-                                          size: 18,
+                                          size: 16,
                                           color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                         ),
                                       ],
                                     ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+
+                            // Sort By Button
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _showSortOrderPickerSheet(context),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  height: 42,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  decoration: BoxDecoration(
+                                    color: _selectedSortOrder != TransactionSortOrder.dateDesc
+                                        ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.22 : 0.12)
+                                        : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _selectedSortOrder != TransactionSortOrder.dateDesc
+                                          ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.5 : 0.35)
+                                          : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0)),
+                                      width: _selectedSortOrder != TransactionSortOrder.dateDesc ? 1.2 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.sort_rounded,
+                                        size: 16,
+                                        color: _selectedSortOrder != TransactionSortOrder.dateDesc
+                                            ? const Color(0xFF2563EB)
+                                            : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _selectedSortOrder.shortLabel,
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: _selectedSortOrder != TransactionSortOrder.dateDesc
+                                              ? (isDark ? Colors.white : const Color(0xFF2563EB))
+                                              : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -1056,6 +1238,26 @@ class HistoryScreenState extends State<HistoryScreen> {
                                   _buildFilterChip(
                                     _timeFilterLabel,
                                     onDeleted: () => _onTimePresetChanged(TimeFilterPreset.allTime),
+                                    isDark: isDark,
+                                    theme: theme,
+                                  ),
+                                if (_selectedSortOrder != TransactionSortOrder.dateDesc)
+                                  _buildFilterChip(
+                                    'Sort: ${_selectedSortOrder.shortLabel}',
+                                    onDeleted: () {
+                                      setState(() => _selectedSortOrder = TransactionSortOrder.dateDesc);
+                                      _loadFilteredData();
+                                    },
+                                    isDark: isDark,
+                                    theme: theme,
+                                  ),
+                                if (_selectedCard != null)
+                                  _buildFilterChip(
+                                    '💳 $_selectedCard',
+                                    onDeleted: () {
+                                      setState(() => _selectedCard = null);
+                                      _loadFilteredData();
+                                    },
                                     isDark: isDark,
                                     theme: theme,
                                   ),
@@ -1220,73 +1422,93 @@ class HistoryScreenState extends State<HistoryScreen> {
                               ),
                             ),
                           )
-                        : ListView.builder(
-                            controller: _scrollController,
-                            itemCount: _calculateTotalCount(dateGroups) + 1,
-                            itemBuilder: (context, index) {
-                              // Check if this is the pagination footer item
-                              final totalSliverCount = _calculateTotalCount(dateGroups);
-                              if (index == totalSliverCount) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 20),
-                                  child: Center(
-                                    child: _isLoadingMore
-                                        ? Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: theme.colorScheme.primary,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Text(
-                                                'Loading more transactions...',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w500,
-                                                  color: isDark
-                                                      ? const Color(0xFF94A3B8)
-                                                      : const Color(0xFF64748B),
-                                                ),
-                                              ),
-                                            ],
-                                          )
-                                        : (!_hasMore && _payments.isNotEmpty)
-                                            ? EndOfListSyncPrompt(
-                                                totalCount: _totalCount,
-                                                earliestDate: _payments.last.date,
-                                                onSyncTap: _showSmsSyncDialog,
+                        : Builder(
+                            builder: (context) {
+                              final isAmountSorted = _selectedSortOrder == TransactionSortOrder.amountDesc ||
+                                  _selectedSortOrder == TransactionSortOrder.amountAsc;
+                              final totalSliverCount = isAmountSorted ? _payments.length : _calculateTotalCount(dateGroups);
+
+                              return ListView.builder(
+                                controller: _scrollController,
+                                itemCount: totalSliverCount + 1,
+                                itemBuilder: (context, index) {
+                                  // Check if this is the pagination footer item
+                                  if (index == totalSliverCount) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 20),
+                                      child: Center(
+                                        child: _isLoadingMore
+                                            ? Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: theme.colorScheme.primary,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Text(
+                                                    'Loading more transactions...',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: isDark
+                                                          ? const Color(0xFF94A3B8)
+                                                          : const Color(0xFF64748B),
+                                                    ),
+                                                  ),
+                                                ],
                                               )
-                                            : const SizedBox.shrink(),
-                                  ),
-                                );
-                              }
+                                            : (!_hasMore && _payments.isNotEmpty)
+                                                ? EndOfListSyncPrompt(
+                                                    totalCount: _totalCount,
+                                                    earliestDate: _payments.last.date,
+                                                    onSyncTap: _showSmsSyncDialog,
+                                                  )
+                                                : const SizedBox.shrink(),
+                                      ),
+                                    );
+                                  }
 
-                              int count = 0;
-                              for (final group in dateGroups) {
-                                if (index == count) {
-                                  return _buildGroupHeader(group, isDark);
-                                }
-                                count++;
+                                  // If sorted by Amount, render items directly in amount order
+                                  if (isAmountSorted) {
+                                    final payment = _payments[index];
+                                    return PaymentCard(
+                                      payment: payment,
+                                      onTap: () => _showEditDialog(payment),
+                                      onEdit: () => _showEditDialog(payment),
+                                      onDelete: () => _deletePayment(payment),
+                                      onToggleExcluded: (val) => _toggleExcludePayment(payment, val),
+                                      onAssignBudgetMonth: (bMonth) => _assignBudgetMonth(payment, bMonth),
+                                    );
+                                  }
 
-                                if (index < count + group.payments.length) {
-                                  final payment = group.payments[index - count];
-                                  return PaymentCard(
-                                    payment: payment,
-                                    onTap: () => _showEditDialog(payment),
-                                    onEdit: () => _showEditDialog(payment),
-                                    onDelete: () => _deletePayment(payment),
-                                    onToggleExcluded: (val) => _toggleExcludePayment(payment, val),
-                                    onAssignBudgetMonth: (bMonth) => _assignBudgetMonth(payment, bMonth),
-                                  );
-                                }
-                                count += group.payments.length;
-                              }
-                              return null;
+                                  int count = 0;
+                                  for (final group in dateGroups) {
+                                    if (index == count) {
+                                      return _buildGroupHeader(group, isDark);
+                                    }
+                                    count++;
+
+                                    if (index < count + group.payments.length) {
+                                      final payment = group.payments[index - count];
+                                      return PaymentCard(
+                                        payment: payment,
+                                        onTap: () => _showEditDialog(payment),
+                                        onEdit: () => _showEditDialog(payment),
+                                        onDelete: () => _deletePayment(payment),
+                                        onToggleExcluded: (val) => _toggleExcludePayment(payment, val),
+                                        onAssignBudgetMonth: (bMonth) => _assignBudgetMonth(payment, bMonth),
+                                      );
+                                    }
+                                    count += group.payments.length;
+                                  }
+                                  return null;
+                                },
+                              );
                             },
                           ),
                   ),

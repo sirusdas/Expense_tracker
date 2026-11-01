@@ -291,16 +291,20 @@ void main() {
       expect(res.payment?.type, TransactionType.debit);
     });
 
-    test('#38 Credit Card Payment Received', () {
+    test('#38 Credit Card Payment Received (Treated as Expense, Not Income)', () {
       final res = pipeline.parse('HDFC Bank: Payment of Rs.8,000 received towards Credit Card XX1234.');
       expect(res.isSuccess, isTrue);
       expect(res.payment?.amount, 8000.0);
+      expect(res.payment?.type, TransactionType.debit);
+      expect(res.payment?.accountReference, 'HDFC Card XX1234');
     });
 
-    test('#39 Credit Card Bill Payment Outstanding', () {
+    test('#39 Credit Card Bill Payment Outstanding (Treated as Expense, Not Income)', () {
       final res = pipeline.parse('SBI: Rs 15,000 credited to your Credit Card XX4455 towards outstanding payment.');
       expect(res.isSuccess, isTrue);
       expect(res.payment?.amount, 15000.0);
+      expect(res.payment?.type, TransactionType.debit);
+      expect(res.payment?.accountReference, 'SBI Card XX4455');
     });
 
     test('#40 Merchant + Reference ID (Dominos)', () {

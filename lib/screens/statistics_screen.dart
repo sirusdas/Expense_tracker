@@ -8,16 +8,23 @@ import '../services/database_service.dart';
 import '../services/app_preferences_service.dart';
 import '../widgets/shimmer_loading.dart';
 
+import '../utils/card_ui_helper.dart';
+
 class StatisticsScreen extends StatefulWidget {
   final void Function(String category, TransactionType type, DateTime month)? onCategorySelected;
+  final void Function(String cardName, DateTime month)? onCardSelected;
 
-  const StatisticsScreen({super.key, this.onCategorySelected});
+  const StatisticsScreen({
+    super.key,
+    this.onCategorySelected,
+    this.onCardSelected,
+  });
 
   @override
   State<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
-enum AnalyticsViewMode { category, merchant }
+enum AnalyticsViewMode { category, merchant, card }
 enum AnalyticsFilter { expense, income, both }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
@@ -26,6 +33,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Map<String, double> _expenseCategoryTotals = {};
   Map<String, double> _incomeCategoryTotals = {};
   List<MerchantSummary> _topMerchants = [];
+  List<CardSummary> _monthCards = [];
   Map<int, double> _dailyExpenseTotals = {};
   Map<int, double> _dailyIncomeTotals = {};
   double _totalExpense = 0.0;
@@ -75,6 +83,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         type: _chartType,
         limit: 10,
       );
+      final cardSummaries = await DatabaseService.instance.getCardSummariesForMonth(
+        _selectedMonth,
+        type: _chartType,
+      );
       final expense = await DatabaseService.instance.getTotalExpenseForMonth(_selectedMonth);
       final income = await DatabaseService.instance.getTotalIncomeForMonth(_selectedMonth);
       final dailyExpense = await DatabaseService.instance.getDailyTotalsForMonth(
@@ -92,6 +104,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           _expenseCategoryTotals = expenseTotals;
           _incomeCategoryTotals = incomeTotals;
           _topMerchants = topMerchants;
+          _monthCards = cardSummaries;
           _totalExpense = expense;
           _totalIncome = income;
           _dailyExpenseTotals = dailyExpense;
@@ -727,7 +740,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _viewMode == AnalyticsViewMode.category ? 'Category Breakdown' : 'Top Merchants',
+                                _viewMode == AnalyticsViewMode.category
+                                    ? 'Category Breakdown'
+                                    : (_viewMode == AnalyticsViewMode.merchant
+                                        ? 'Top Merchants'
+                                        : 'Card Breakdown'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
@@ -737,7 +754,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                _viewMode == AnalyticsViewMode.category ? 'Tap category to view in History' : 'Ranked by monthly spending share',
+                                _viewMode == AnalyticsViewMode.category
+                                    ? 'Tap category to view in History'
+                                    : (_viewMode == AnalyticsViewMode.merchant
+                                        ? 'Ranked by monthly spending share'
+                                        : 'Tap card to view transactions'),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
@@ -782,7 +803,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Mode Switcher: Category vs Merchant
+                    // Mode Switcher: Category vs Merchant vs Cards
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(3),
@@ -821,9 +842,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                 ),
                                 child: Center(
                                   child: Text(
-                                    '📊 By Category',
+                                    '📊 Category',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 11.5,
                                       fontWeight: FontWeight.w600,
                                       color: _viewMode == AnalyticsViewMode.category
                                           ? (isDark ? Colors.white : const Color(0xFF1E293B))
@@ -860,11 +881,50 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                 ),
                                 child: Center(
                                   child: Text(
-                                    '🛍️ By Merchant',
+                                    '🛍️ Merchant',
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 11.5,
                                       fontWeight: FontWeight.w600,
                                       color: _viewMode == AnalyticsViewMode.merchant
+                                          ? (isDark ? Colors.white : const Color(0xFF1E293B))
+                                          : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _viewMode = AnalyticsViewMode.card);
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _viewMode == AnalyticsViewMode.card
+                                      ? (isDark ? const Color(0xFF334155) : Colors.white)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(9),
+                                  boxShadow: _viewMode == AnalyticsViewMode.card
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.05),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          )
+                                        ]
+                                      : [],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '💳 Cards',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: _viewMode == AnalyticsViewMode.card
                                           ? (isDark ? Colors.white : const Color(0xFF1E293B))
                                           : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                                     ),
@@ -1084,7 +1144,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           ),
                         ),
                       ],
-                    ] else ...[
+                    ] else if (_viewMode == AnalyticsViewMode.merchant) ...[
                       // Merchant View Mode Rendering
                       if (_topMerchants.isNotEmpty) ...[
                         Card(
@@ -1227,6 +1287,192 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                               Text(
                                 'No ${_chartType == TransactionType.debit ? 'expense' : 'income'} merchant data for this month',
                                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      // Card View Mode Rendering
+                      if (_monthCards.isNotEmpty) ...[
+                        Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _monthCards.length,
+                            separatorBuilder: (context, index) => Divider(
+                              height: 1,
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                            ),
+                            itemBuilder: (context, index) {
+                              final card = _monthCards[index];
+                              final cardStyle = CardUiHelper.getCardStyle(card.cardName);
+                              final amount = _chartType == TransactionType.debit ? card.totalSpend : card.totalIncome;
+
+                              return InkWell(
+                                onTap: () => widget.onCardSelected?.call(card.cardName, _selectedMonth),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            width: 44,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: cardStyle.gradientColors,
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              borderRadius: BorderRadius.circular(6),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: cardStyle.gradientColors.first.withValues(alpha: 0.35),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Center(
+                                              child: Icon(
+                                                cardStyle.icon,
+                                                size: 16,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Flexible(
+                                                      child: Text(
+                                                        cardStyle.bankName,
+                                                        style: const TextStyle(
+                                                          fontWeight: FontWeight.w700,
+                                                          fontSize: 13.5,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        CardUiHelper.formatMaskedCardNumber(card.lastDigits),
+                                                        style: TextStyle(
+                                                          fontSize: 10.5,
+                                                          fontWeight: FontWeight.w600,
+                                                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  '${card.transactionCount} ${card.transactionCount == 1 ? "txn" : "txns"} • ${card.percentage.toStringAsFixed(1)}% of card spend',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ValueListenableBuilder<bool>(
+                                            valueListenable: AppPreferencesService.instance.obscureNotifier,
+                                            builder: (context, isObscured, _) {
+                                              return Text(
+                                                isObscured ? '₹ ••••••' : '₹${NumberFormat('#,##,###.00').format(amount)}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _chartType == TransactionType.debit
+                                                      ? (isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626))
+                                                      : (isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A)),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 18,
+                                            color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: LinearProgressIndicator(
+                                          value: (card.percentage / 100).clamp(0.0, 1.0),
+                                          minHeight: 5,
+                                          backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            cardStyle.accentColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.all(36),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.credit_card_off_rounded,
+                                size: 48,
+                                color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No ${_chartType == TransactionType.debit ? 'expense' : 'income'} card data for this month',
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Cards found in SMS payments will appear here',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                ),
                               ),
                             ],
                           ),

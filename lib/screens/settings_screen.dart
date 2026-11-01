@@ -5,6 +5,7 @@ import '../services/app_preferences_service.dart';
 import '../services/biometric_auth_service.dart';
 import '../services/database_service.dart';
 import '../widgets/onboarding_tour_sheet.dart';
+import 'cards_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   bool _isBiometricSupported = false;
   int _customRulesCount = 0;
+  int _cardCount = 0;
   bool _isLoading = true;
   bool _hasSystemNotificationPermission = false;
 
@@ -42,12 +44,14 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   Future<void> _loadSettingsData() async {
     final isAvailable = await BiometricAuthService.instance.isBiometricAvailable();
     final rules = await DatabaseService.instance.getAllCustomMerchantRules();
+    final cards = await DatabaseService.instance.getAllCardSummaries();
     final systemNotifGranted = await Permission.notification.isGranted;
 
     if (mounted) {
       setState(() {
         _isBiometricSupported = isAvailable;
         _customRulesCount = rules.length;
+        _cardCount = cards.length;
         _hasSystemNotificationPermission = systemNotifGranted;
         _isLoading = false;
       });
@@ -295,6 +299,42 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                         ),
                       ],
                     ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // SECTION: Cards & Accounts
+                _buildSectionHeader(context, 'PAYMENT INSTRUMENTS'),
+                const SizedBox(height: 8),
+
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                    ),
+                  ),
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.credit_card_rounded, color: Color(0xFF2563EB), size: 22),
+                    ),
+                    title: const Text('Cards & Accounts', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                    subtitle: Text('$_cardCount ${_cardCount == 1 ? "card" : "cards"} tracked • View spend per card', style: const TextStyle(fontSize: 11.5)),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const CardsScreen()),
+                      ).then((_) => _loadSettingsData());
+                    },
                   ),
                 ),
 

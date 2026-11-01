@@ -4,6 +4,74 @@ import 'package:path/path.dart';
 import '../models/payment.dart';
 import '../parser/merchant_categorizer.dart';
 
+enum TransactionSortOrder {
+  dateDesc,
+  dateAsc,
+  amountDesc,
+  amountAsc;
+
+  String get displayName {
+    switch (this) {
+      case TransactionSortOrder.dateDesc:
+        return 'Date: Newest First';
+      case TransactionSortOrder.dateAsc:
+        return 'Date: Oldest First';
+      case TransactionSortOrder.amountDesc:
+        return 'Amount: High to Low';
+      case TransactionSortOrder.amountAsc:
+        return 'Amount: Low to High';
+    }
+  }
+
+  String get shortLabel {
+    switch (this) {
+      case TransactionSortOrder.dateDesc:
+        return 'Date ↓';
+      case TransactionSortOrder.dateAsc:
+        return 'Date ↑';
+      case TransactionSortOrder.amountDesc:
+        return 'Amount ↓';
+      case TransactionSortOrder.amountAsc:
+        return 'Amount ↑';
+    }
+  }
+
+  String get sqlOrderBy {
+    switch (this) {
+      case TransactionSortOrder.dateDesc:
+        return 'date DESC';
+      case TransactionSortOrder.dateAsc:
+        return 'date ASC';
+      case TransactionSortOrder.amountDesc:
+        return 'amount DESC, date DESC';
+      case TransactionSortOrder.amountAsc:
+        return 'amount ASC, date DESC';
+    }
+  }
+}
+
+class CardSummary {
+  final String cardName; // e.g. "SBI Card 1234", "HDFC Card XX5678"
+  final String bankName; // e.g. "SBI", "HDFC", or "Card"
+  final String lastDigits; // e.g. "1234"
+  final double totalSpend;
+  final double totalIncome;
+  final int transactionCount;
+  final double percentage;
+  final DateTime? latestDate;
+
+  CardSummary({
+    required this.cardName,
+    required this.bankName,
+    required this.lastDigits,
+    required this.totalSpend,
+    required this.totalIncome,
+    required this.transactionCount,
+    required this.percentage,
+    this.latestDate,
+  });
+}
+
 class FilteredSummaryMetrics {
   final double totalExpense;
   final double totalIncome;
@@ -209,6 +277,8 @@ class DatabaseService {
     TransactionType? type,
     DateTime? startDate,
     DateTime? endDate,
+    TransactionSortOrder sortOrder = TransactionSortOrder.dateDesc,
+    String? cardReference,
   }) async {
     final db = await database;
     final List<String> whereClauses = [];
@@ -228,6 +298,11 @@ class DatabaseService {
     if (type != null) {
       whereClauses.add('type = ?');
       whereArgs.add(type.name);
+    }
+
+    if (cardReference != null && cardReference.trim().isNotEmpty) {
+      whereClauses.add('accountReference = ?');
+      whereArgs.add(cardReference.trim());
     }
 
     if (startDate != null && endDate != null) {
@@ -259,7 +334,7 @@ class DatabaseService {
       'payments',
       where: where,
       whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
-      orderBy: 'date DESC',
+      orderBy: sortOrder.sqlOrderBy,
       limit: limit,
       offset: offset,
     );
@@ -274,6 +349,7 @@ class DatabaseService {
     TransactionType? type,
     DateTime? startDate,
     DateTime? endDate,
+    String? cardReference,
   }) async {
     final db = await database;
     final List<String> whereClauses = [];
@@ -293,6 +369,11 @@ class DatabaseService {
     if (type != null) {
       whereClauses.add('type = ?');
       whereArgs.add(type.name);
+    }
+
+    if (cardReference != null && cardReference.trim().isNotEmpty) {
+      whereClauses.add('accountReference = ?');
+      whereArgs.add(cardReference.trim());
     }
 
     if (startDate != null && endDate != null) {
@@ -619,5 +700,134 @@ class DatabaseService {
       whereArgs: [name],
     );
     notifyDataChanged();
+  }
+
+  /// Parses bank name, card label, and last 4 digits from an account/card reference
+  static (String cardName, String bankName, String lastDigits) parseCardInfo(Payment payment) {
+    final ref = payment.accountReference?.trim();
+    if (ref != null && ref.isNotEmpty) {
+      final bankMatch = RegExp(
+        r'\b(HDFC|SBI|ICICI|AXIS|KOTAK|PNB|BOB|AMEX|ONECARD|RBL|IDFC|CITI|HSBC|FEDERAL|INDUSIND|YES|STANDARD\s*CHARTERED)\b',
+        caseSensitive: false,
+      ).firstMatch(ref);
+      final bank = bankMatch?.group(1)?.toUpperCase() ?? 'Card';
+      final digitsMatch = RegExp(r'(\d{4})\b').firstMatch(ref);
+      final digits = digitsMatch?.group(1) ?? '';
+      return (ref, bank, digits);
+    }
+    return ('Credit / Debit Card', 'Card', '');
+  }
+
+  /// Card Summaries for a specific month (aggregating spend, counts, percentages)
+  Future<List<CardSummary>> getCardSummariesForMonth(
+    DateTime month, {
+    TransactionType type = TransactionType.debit,
+  }) async {
+    final payments = await getPaymentsByMonth(month);
+    final cardPayments = payments.where((p) {
+      final isCard = p.paymentMode == PaymentMode.card ||
+          (p.accountReference != null && p.accountReference!.toLowerCase().contains('card'));
+      return isCard && !p.isExcludedFromBudget && (p.type == type);
+    }).toList();
+
+    if (cardPayments.isEmpty) return [];
+
+    final totalMonthCardSpend = cardPayments.fold<double>(0.0, (sum, p) => sum + p.amount);
+    final Map<String, List<Payment>> cardGroups = {};
+
+    for (final p in cardPayments) {
+      final (cardName, _, _) = parseCardInfo(p);
+      cardGroups.putIfAbsent(cardName, () => []).add(p);
+    }
+
+    final List<CardSummary> summaries = [];
+    for (final entry in cardGroups.entries) {
+      final cardName = entry.key;
+      final txns = entry.value;
+      final (_, bank, digits) = parseCardInfo(txns.first);
+      final totalSpend = txns.fold<double>(0.0, (sum, p) => sum + p.amount);
+      final percentage = totalMonthCardSpend > 0 ? (totalSpend / totalMonthCardSpend) * 100.0 : 0.0;
+      DateTime? latestDate;
+      for (final p in txns) {
+        if (latestDate == null || p.date.isAfter(latestDate)) {
+          latestDate = p.date;
+        }
+      }
+
+      summaries.add(CardSummary(
+        cardName: cardName,
+        bankName: bank,
+        lastDigits: digits,
+        totalSpend: totalSpend,
+        totalIncome: 0.0,
+        transactionCount: txns.length,
+        percentage: percentage,
+        latestDate: latestDate,
+      ));
+    }
+
+    summaries.sort((a, b) => b.totalSpend.compareTo(a.totalSpend));
+    return summaries;
+  }
+
+  /// All Card Summaries across all time with lifetime stats
+  Future<List<CardSummary>> getAllCardSummaries() async {
+    final db = await database;
+    final rows = await db.query(
+      'payments',
+      where: "(paymentMode = 'card' OR accountReference LIKE '%card%') AND isExcluded = 0",
+      orderBy: 'date DESC',
+    );
+
+    if (rows.isEmpty) return [];
+    final payments = rows.map((r) => Payment.fromMap(r)).toList();
+
+    final Map<String, List<Payment>> cardGroups = {};
+    for (final p in payments) {
+      final (cardName, _, _) = parseCardInfo(p);
+      cardGroups.putIfAbsent(cardName, () => []).add(p);
+    }
+
+    final double allCardSpend = payments
+        .where((p) => p.isExpense)
+        .fold<double>(0.0, (sum, p) => sum + p.amount);
+
+    final List<CardSummary> summaries = [];
+    for (final entry in cardGroups.entries) {
+      final cardName = entry.key;
+      final txns = entry.value;
+      final (_, bank, digits) = parseCardInfo(txns.first);
+
+      double spend = 0.0;
+      double income = 0.0;
+      DateTime? latest;
+
+      for (final p in txns) {
+        if (p.isExpense) {
+          spend += p.amount;
+        } else {
+          income += p.amount;
+        }
+        if (latest == null || p.date.isAfter(latest)) {
+          latest = p.date;
+        }
+      }
+
+      final percentage = allCardSpend > 0 ? (spend / allCardSpend) * 100.0 : 0.0;
+
+      summaries.add(CardSummary(
+        cardName: cardName,
+        bankName: bank,
+        lastDigits: digits,
+        totalSpend: spend,
+        totalIncome: income,
+        transactionCount: txns.length,
+        percentage: percentage,
+        latestDate: latest,
+      ));
+    }
+
+    summaries.sort((a, b) => b.totalSpend.compareTo(a.totalSpend));
+    return summaries;
   }
 }

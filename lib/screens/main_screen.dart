@@ -29,6 +29,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _historyCategory;
   String? _historyType;
   DateTime? _historyMonth;
+  String? _historyCard;
 
   @override
   void initState() {
@@ -123,6 +124,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _historyCategory = category;
       _historyType = type == TransactionType.debit ? 'Expense' : 'Income';
       _historyMonth = month;
+      _historyCard = null;
+      _selectedIndex = 1; // Switch to History tab
+    });
+  }
+
+  void _navigateToHistoryWithCard(String cardName, DateTime month) {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _historyCard = cardName;
+      _historyCategory = null;
+      _historyType = null;
+      _historyMonth = month;
       _selectedIndex = 1; // Switch to History tab
     });
   }
@@ -173,9 +186,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             initialCategory: _historyCategory,
             initialFilterType: _historyType,
             initialMonth: _historyMonth,
+            initialCard: _historyCard,
           ),
           StatisticsScreen(
             onCategorySelected: _navigateToHistoryWithFilters,
+            onCardSelected: _navigateToHistoryWithCard,
           ),
         ],
       ),

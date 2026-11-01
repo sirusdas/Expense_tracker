@@ -171,10 +171,27 @@ class MessageParserPipeline {
     TransactionType type = TransactionType.debit;
     final lower = cleanText.toLowerCase();
 
+    // Check if message references a card vs account
+    final bool mentionsCard = RegExp(r'\b(?:credit\s*card|debit\s*card|card)\b', caseSensitive: false).hasMatch(cleanText);
+    final bool mentionsAccount = RegExp(r'\b(?:a/c|acct|account)\b', caseSensitive: false).hasMatch(cleanText);
+
+    // Rule: If a payment is received into a card and not an account, it is always a credit card bill payment / repayment.
+    // It can NEVER be treated as an Income! (Only refunds/reversals with explicit refund keywords remain credits/refunds).
+    final bool isRefundOrReversal = lower.contains('refund') ||
+        lower.contains('reversed') ||
+        lower.contains('reversal') ||
+        lower.contains('cashback');
+
+    final bool isPaymentReceivedToCard = !isRefundOrReversal && mentionsCard && !mentionsAccount && (
+      RegExp(r'\b(?:payment(?:\s+of\s+[^.]+?)?\s+received\s+(?:towards|for|into)|received\s+(?:towards|for|into)\s+(?:(?:your|the)\s+)?(?:credit\s*card|card)|credited\s+(?:to|into|towards)\s+(?:your\s+)?(?:credit\s*card|card)|towards\s+(?:outstanding\s+)?payment)\b', caseSensitive: false).hasMatch(cleanText) ||
+      RegExp(r'\b(?:thank\s+you\s+for\s+(?:your\s+)?payment\s+(?:of\s+[^.]+?)?\s+towards)\b', caseSensitive: false).hasMatch(cleanText) ||
+      (RegExp(r'\b(?:payment\s+received|payment\s+of\b.*\breceived)\b', caseSensitive: false).hasMatch(cleanText))
+    );
+
     // Check if bill payment from user card/account (e.g. "Payment of Rs. X received from SBI Debit Card XX1234 for your broadband bill")
     final isBillPaymentFromUser = RegExp(r'received\s+from\s+(?:(?:your|the|sbi|hdfc|icici|axis|kotak)\s+)?(?:debit\s*card|credit\s*card|a/c|account)', caseSensitive: false).hasMatch(cleanText);
 
-    if (hasCredit && !isBillPaymentFromUser) {
+    if (hasCredit && !isBillPaymentFromUser && !isPaymentReceivedToCard) {
       if (!hasDebit ||
           lower.contains('refund') ||
           lower.contains('salary') ||
@@ -197,13 +214,14 @@ class MessageParserPipeline {
 
     final bankName = bankMatch?.group(1)?.toUpperCase();
     final accNumber = accMatch?.group(1) ?? accMatch?.group(2) ?? accMatch?.group(3);
+    final bool isCardInstrument = mentionsCard || isPaymentReceivedToCard;
 
     if (bankName != null && accNumber != null) {
-      accountRef = '$bankName A/c $accNumber';
+      accountRef = isCardInstrument ? '$bankName Card $accNumber' : '$bankName A/c $accNumber';
     } else if (accNumber != null) {
-      accountRef = 'A/c $accNumber';
+      accountRef = isCardInstrument ? 'Card $accNumber' : 'A/c $accNumber';
     } else if (bankName != null) {
-      accountRef = '$bankName Bank';
+      accountRef = isCardInstrument ? '$bankName Card' : '$bankName Bank';
     }
 
     // 4. Extract Payment Mode with strict priority (ATM/Cash first, then NetBanking, Card, UPI)
@@ -212,7 +230,7 @@ class MessageParserPipeline {
       paymentMode = PaymentMode.cash;
     } else if (RegExp(r'\b(?:neft|imps|rtgs|netbanking|net\s*banking|wire\s*transfer|bank\s*transfer)\b', caseSensitive: false).hasMatch(cleanText)) {
       paymentMode = PaymentMode.netBanking;
-    } else if (RegExp(r'\b(?:credit\s*card|debit\s*card|card|pos\s*machine|pos\s*txn|\bpos\b)', caseSensitive: false).hasMatch(cleanText)) {
+    } else if (isPaymentReceivedToCard || mentionsCard || RegExp(r'\b(?:credit\s*card|debit\s*card|card|pos\s*machine|pos\s*txn|\bpos\b)', caseSensitive: false).hasMatch(cleanText)) {
       paymentMode = PaymentMode.card;
     } else if (RegExp(r'\b(?:upi|vpa|scan\s*&\s*pay|gpay|phonepe|paytm)\b', caseSensitive: false).hasMatch(cleanText)) {
       paymentMode = PaymentMode.upi;
