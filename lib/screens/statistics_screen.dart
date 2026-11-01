@@ -13,18 +13,20 @@ import '../utils/card_ui_helper.dart';
 class StatisticsScreen extends StatefulWidget {
   final void Function(String category, TransactionType type, DateTime month)? onCategorySelected;
   final void Function(String cardName, DateTime month)? onCardSelected;
+  final void Function(double? min, double? max, DateTime month)? onAmountRangeSelected;
 
   const StatisticsScreen({
     super.key,
     this.onCategorySelected,
     this.onCardSelected,
+    this.onAmountRangeSelected,
   });
 
   @override
   State<StatisticsScreen> createState() => _StatisticsScreenState();
 }
 
-enum AnalyticsViewMode { category, merchant, card }
+enum AnalyticsViewMode { category, merchant, card, amountRange }
 enum AnalyticsFilter { expense, income, both }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
@@ -34,6 +36,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Map<String, double> _incomeCategoryTotals = {};
   List<MerchantSummary> _topMerchants = [];
   List<CardSummary> _monthCards = [];
+  List<AmountRangeBracket> _monthAmountBrackets = [];
   Map<int, double> _dailyExpenseTotals = {};
   Map<int, double> _dailyIncomeTotals = {};
   double _totalExpense = 0.0;
@@ -87,6 +90,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         _selectedMonth,
         type: _chartType,
       );
+      final amountBrackets = await DatabaseService.instance.getAmountRangeBracketsForMonth(
+        _selectedMonth,
+        type: _chartType,
+      );
       final expense = await DatabaseService.instance.getTotalExpenseForMonth(_selectedMonth);
       final income = await DatabaseService.instance.getTotalIncomeForMonth(_selectedMonth);
       final dailyExpense = await DatabaseService.instance.getDailyTotalsForMonth(
@@ -105,6 +112,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           _incomeCategoryTotals = incomeTotals;
           _topMerchants = topMerchants;
           _monthCards = cardSummaries;
+          _monthAmountBrackets = amountBrackets;
           _totalExpense = expense;
           _totalIncome = income;
           _dailyExpenseTotals = dailyExpense;
@@ -744,7 +752,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                     ? 'Category Breakdown'
                                     : (_viewMode == AnalyticsViewMode.merchant
                                         ? 'Top Merchants'
-                                        : 'Card Breakdown'),
+                                        : (_viewMode == AnalyticsViewMode.card
+                                            ? 'Card Breakdown'
+                                            : 'Amount Brackets')),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
@@ -758,7 +768,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                     ? 'Tap category to view in History'
                                     : (_viewMode == AnalyticsViewMode.merchant
                                         ? 'Ranked by monthly spending share'
-                                        : 'Tap card to view transactions'),
+                                        : (_viewMode == AnalyticsViewMode.card
+                                            ? 'Tap card to view transactions'
+                                            : 'Ranked by spend in amount range')),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
@@ -803,7 +815,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Mode Switcher: Category vs Merchant vs Cards
+                    // Mode Switcher: Category vs Merchant vs Cards vs Ranges
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(3),
@@ -844,7 +856,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   child: Text(
                                     '📊 Category',
                                     style: TextStyle(
-                                      fontSize: 11.5,
+                                      fontSize: 11.0,
                                       fontWeight: FontWeight.w600,
                                       color: _viewMode == AnalyticsViewMode.category
                                           ? (isDark ? Colors.white : const Color(0xFF1E293B))
@@ -883,7 +895,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   child: Text(
                                     '🛍️ Merchant',
                                     style: TextStyle(
-                                      fontSize: 11.5,
+                                      fontSize: 11.0,
                                       fontWeight: FontWeight.w600,
                                       color: _viewMode == AnalyticsViewMode.merchant
                                           ? (isDark ? Colors.white : const Color(0xFF1E293B))
@@ -922,9 +934,48 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   child: Text(
                                     '💳 Cards',
                                     style: TextStyle(
-                                      fontSize: 11.5,
+                                      fontSize: 11.0,
                                       fontWeight: FontWeight.w600,
                                       color: _viewMode == AnalyticsViewMode.card
+                                          ? (isDark ? Colors.white : const Color(0xFF1E293B))
+                                          : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _viewMode = AnalyticsViewMode.amountRange);
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _viewMode == AnalyticsViewMode.amountRange
+                                      ? (isDark ? const Color(0xFF334155) : Colors.white)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(9),
+                                  boxShadow: _viewMode == AnalyticsViewMode.amountRange
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.05),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          )
+                                        ]
+                                      : [],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '💰 Ranges',
+                                    style: TextStyle(
+                                      fontSize: 11.0,
+                                      fontWeight: FontWeight.w600,
+                                      color: _viewMode == AnalyticsViewMode.amountRange
                                           ? (isDark ? Colors.white : const Color(0xFF1E293B))
                                           : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                                     ),
@@ -1292,7 +1343,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           ),
                         ),
                       ],
-                    ] else ...[
+                    ] else if (_viewMode == AnalyticsViewMode.card) ...[
                       // Card View Mode Rendering
                       if (_monthCards.isNotEmpty) ...[
                         Card(
@@ -1473,6 +1524,170 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                                   fontSize: 12,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
                                 ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      // Amount Range View Mode Rendering
+                      if (_monthAmountBrackets.isNotEmpty && _monthAmountBrackets.any((b) => b.transactionCount > 0)) ...[
+                        Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _monthAmountBrackets.length,
+                            separatorBuilder: (context, index) => Divider(
+                              height: 1,
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                            ),
+                            itemBuilder: (context, index) {
+                              final bracket = _monthAmountBrackets[index];
+                              final Color bracketColor;
+                              switch (index) {
+                                case 0:
+                                  bracketColor = const Color(0xFF10B981);
+                                  break;
+                                case 1:
+                                  bracketColor = const Color(0xFF06B6D4);
+                                  break;
+                                case 2:
+                                  bracketColor = const Color(0xFF3B82F6);
+                                  break;
+                                case 3:
+                                  bracketColor = const Color(0xFFF59E0B);
+                                  break;
+                                default:
+                                  bracketColor = const Color(0xFFEF4444);
+                                  break;
+                              }
+
+                              return InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  widget.onAmountRangeSelected?.call(bracket.min, bracket.max, _selectedMonth);
+                                },
+                                borderRadius: BorderRadius.circular(16),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            width: 38,
+                                            height: 38,
+                                            decoration: BoxDecoration(
+                                              color: bracketColor.withValues(alpha: isDark ? 0.22 : 0.12),
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: bracketColor.withValues(alpha: isDark ? 0.45 : 0.3),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Center(
+                                              child: Icon(
+                                                Icons.currency_rupee_rounded,
+                                                size: 18,
+                                                color: bracketColor,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  bracket.label,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    fontSize: 13.5,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  '${bracket.transactionCount} ${bracket.transactionCount == 1 ? "txn" : "txns"} • ${bracket.percentage.toStringAsFixed(1)}% of total',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ValueListenableBuilder<bool>(
+                                            valueListenable: AppPreferencesService.instance.obscureNotifier,
+                                            builder: (context, isObscured, _) {
+                                              return Text(
+                                                isObscured ? '₹ ••••••' : '₹${NumberFormat('#,##,###.00').format(bracket.totalAmount)}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _chartType == TransactionType.debit
+                                                      ? (isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626))
+                                                      : (isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A)),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 18,
+                                            color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: LinearProgressIndicator(
+                                          value: (bracket.percentage / 100).clamp(0.0, 1.0),
+                                          minHeight: 5,
+                                          backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                                          valueColor: AlwaysStoppedAnimation<Color>(bracketColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.all(36),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.bar_chart_rounded,
+                                size: 48,
+                                color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No ${_chartType == TransactionType.debit ? 'expense' : 'income'} range data for this month',
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                               ),
                             ],
                           ),

@@ -171,9 +171,11 @@ class MessageParserPipeline {
     TransactionType type = TransactionType.debit;
     final lower = cleanText.toLowerCase();
 
-    // Check if message references a card vs account
+    // Check if message references a card vs bank account
     final bool mentionsCard = RegExp(r'\b(?:credit\s*card|debit\s*card|card)\b', caseSensitive: false).hasMatch(cleanText);
-    final bool mentionsAccount = RegExp(r'\b(?:a/c|acct|account)\b', caseSensitive: false).hasMatch(cleanText);
+    // Ignore "card a/c" or "card account" so they don't count as bank accounts
+    final cleanWithoutCardAccount = cleanText.replaceAll(RegExp(r'\b(?:credit\s*card|card)\s*(?:a/c|acct|account)\b', caseSensitive: false), '');
+    final bool mentionsAccount = RegExp(r'\b(?:a/c|acct|account)\b', caseSensitive: false).hasMatch(cleanWithoutCardAccount);
 
     // Rule: If a payment is received into a card and not an account, it is always a credit card bill payment / repayment.
     // It can NEVER be treated as an Income! (Only refunds/reversals with explicit refund keywords remain credits/refunds).
@@ -185,7 +187,7 @@ class MessageParserPipeline {
     final bool isPaymentReceivedToCard = !isRefundOrReversal && mentionsCard && !mentionsAccount && (
       RegExp(r'\b(?:payment(?:\s+of\s+[^.]+?)?\s+received\s+(?:towards|for|into)|received\s+(?:towards|for|into)\s+(?:(?:your|the)\s+)?(?:credit\s*card|card)|credited\s+(?:to|into|towards)\s+(?:your\s+)?(?:credit\s*card|card)|towards\s+(?:outstanding\s+)?payment)\b', caseSensitive: false).hasMatch(cleanText) ||
       RegExp(r'\b(?:thank\s+you\s+for\s+(?:your\s+)?payment\s+(?:of\s+[^.]+?)?\s+towards)\b', caseSensitive: false).hasMatch(cleanText) ||
-      (RegExp(r'\b(?:payment\s+received|payment\s+of\b.*\breceived)\b', caseSensitive: false).hasMatch(cleanText))
+      RegExp(r'\b(?:payment\s+received|online\s+payment\s+of\b.*\bcredited\s+to\s+(?:your\s+)?card|payment\s+of\b.*\b(?:received|credited))\b', caseSensitive: false).hasMatch(cleanText)
     );
 
     // Check if bill payment from user card/account (e.g. "Payment of Rs. X received from SBI Debit Card XX1234 for your broadband bill")

@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/payment.dart';
 import '../parser/merchant_categorizer.dart';
+import '../parser/message_parser_pipeline.dart';
 
 enum TransactionSortOrder {
   dateDesc,
@@ -81,6 +82,40 @@ class FilteredSummaryMetrics {
     required this.totalExpense,
     required this.totalIncome,
     required this.totalCount,
+  });
+}
+
+class AmountRangeBracket {
+  final String label;
+  final double? min;
+  final double? max;
+  final double totalAmount;
+  final int transactionCount;
+  final double percentage;
+
+  AmountRangeBracket({
+    required this.label,
+    this.min,
+    this.max,
+    required this.totalAmount,
+    required this.transactionCount,
+    required this.percentage,
+  });
+}
+
+class RecalculationResult {
+  final int totalScanned;
+  final int totalUpdated;
+  final int cardDebitsCorrected;
+  final int categoriesUpdated;
+  final int paymentModesUpdated;
+
+  RecalculationResult({
+    required this.totalScanned,
+    required this.totalUpdated,
+    required this.cardDebitsCorrected,
+    required this.categoriesUpdated,
+    required this.paymentModesUpdated,
   });
 }
 
@@ -279,6 +314,8 @@ class DatabaseService {
     DateTime? endDate,
     TransactionSortOrder sortOrder = TransactionSortOrder.dateDesc,
     String? cardReference,
+    double? minAmount,
+    double? maxAmount,
   }) async {
     final db = await database;
     final List<String> whereClauses = [];
@@ -303,6 +340,16 @@ class DatabaseService {
     if (cardReference != null && cardReference.trim().isNotEmpty) {
       whereClauses.add('accountReference = ?');
       whereArgs.add(cardReference.trim());
+    }
+
+    if (minAmount != null) {
+      whereClauses.add('amount >= ?');
+      whereArgs.add(minAmount);
+    }
+
+    if (maxAmount != null) {
+      whereClauses.add('amount <= ?');
+      whereArgs.add(maxAmount);
     }
 
     if (startDate != null && endDate != null) {
@@ -350,6 +397,8 @@ class DatabaseService {
     DateTime? startDate,
     DateTime? endDate,
     String? cardReference,
+    double? minAmount,
+    double? maxAmount,
   }) async {
     final db = await database;
     final List<String> whereClauses = [];
@@ -374,6 +423,16 @@ class DatabaseService {
     if (cardReference != null && cardReference.trim().isNotEmpty) {
       whereClauses.add('accountReference = ?');
       whereArgs.add(cardReference.trim());
+    }
+
+    if (minAmount != null) {
+      whereClauses.add('amount >= ?');
+      whereArgs.add(minAmount);
+    }
+
+    if (maxAmount != null) {
+      whereClauses.add('amount <= ?');
+      whereArgs.add(maxAmount);
     }
 
     if (startDate != null && endDate != null) {
@@ -829,5 +888,132 @@ class DatabaseService {
 
     summaries.sort((a, b) => b.totalSpend.compareTo(a.totalSpend));
     return summaries;
+  }
+
+  /// Calculates spending / count distribution across amount brackets for a given month
+  Future<List<AmountRangeBracket>> getAmountRangeBracketsForMonth(
+    DateTime month, {
+    TransactionType type = TransactionType.debit,
+  }) async {
+    final payments = await getPaymentsByMonth(month);
+    final validPayments = payments.where((p) => p.type == type && !p.isExcludedFromBudget).toList();
+
+    if (validPayments.isEmpty) return [];
+
+    final totalMonthSpend = validPayments.fold<double>(0.0, (sum, p) => sum + p.amount);
+
+    final List<(String, double?, double?)> brackets = [
+      ('Under ₹500', null, 500.0),
+      ('₹500 - ₹2,000', 500.0, 2000.0),
+      ('₹2,000 - ₹5,000', 2000.0, 5000.0),
+      ('₹5,000 - ₹10,000', 5000.0, 10000.0),
+      ('Above ₹10,000', 10000.0, null),
+    ];
+
+    final List<AmountRangeBracket> results = [];
+
+    for (final (label, min, max) in brackets) {
+      final txns = validPayments.where((p) {
+        if (min != null && p.amount < min) return false;
+        if (max != null && p.amount >= max) return false;
+        return true;
+      }).toList();
+
+      final sum = txns.fold<double>(0.0, (s, p) => s + p.amount);
+      final count = txns.length;
+      final pct = totalMonthSpend > 0 ? (sum / totalMonthSpend) * 100.0 : 0.0;
+
+      results.add(AmountRangeBracket(
+        label: label,
+        min: min,
+        max: max,
+        totalAmount: sum,
+        transactionCount: count,
+        percentage: pct,
+      ));
+    }
+
+    return results;
+  }
+
+  /// Reprocesses and recalculates all stored SMS transactions through the updated parser pipeline
+  Future<RecalculationResult> recalculateAllTransactions() async {
+    final db = await database;
+    final allRows = await db.query('payments');
+    int totalScanned = 0;
+    int totalUpdated = 0;
+    int cardDebitsCorrected = 0;
+    int categoriesUpdated = 0;
+    int paymentModesUpdated = 0;
+
+    final batch = db.batch();
+
+    for (final row in allRows) {
+      final payment = Payment.fromMap(row);
+      final rawMsg = payment.rawMessage?.trim();
+      if (rawMsg == null || rawMsg.isEmpty) continue;
+
+      totalScanned++;
+      final parseResult = MessageParserPipeline.instance.parse(
+        rawMsg,
+        source: payment.source,
+      );
+
+      if (parseResult.isSuccess && parseResult.payment != null) {
+        final newPayment = parseResult.payment!;
+        bool needsUpdate = false;
+
+        // Check if transaction type changed (e.g. Card payment was erroneously credit/income, now debit/expense)
+        if (payment.type != newPayment.type) {
+          needsUpdate = true;
+          if (payment.type == TransactionType.credit && newPayment.type == TransactionType.debit) {
+            cardDebitsCorrected++;
+          }
+        }
+
+        if (payment.accountReference != newPayment.accountReference) {
+          needsUpdate = true;
+        }
+
+        if (payment.paymentMode != newPayment.paymentMode) {
+          needsUpdate = true;
+          paymentModesUpdated++;
+        }
+
+        // If category is different and was previously generic "Income" or "Other Expense" or now bill payment
+        if (payment.category != newPayment.category) {
+          needsUpdate = true;
+          categoriesUpdated++;
+        }
+
+        if (needsUpdate && payment.id != null) {
+          batch.update(
+            'payments',
+            {
+              'type': newPayment.type.name,
+              'accountReference': newPayment.accountReference,
+              'paymentMode': newPayment.paymentMode.name,
+              'category': newPayment.category,
+            },
+            where: 'id = ?',
+            whereArgs: [payment.id],
+          );
+          totalUpdated++;
+        }
+      }
+    }
+
+    if (totalUpdated > 0) {
+      await batch.commit(noResult: true);
+      notifyDataChanged();
+    }
+
+    return RecalculationResult(
+      totalScanned: totalScanned,
+      totalUpdated: totalUpdated,
+      cardDebitsCorrected: cardDebitsCorrected,
+      categoriesUpdated: categoriesUpdated,
+      paymentModesUpdated: paymentModesUpdated,
+    );
   }
 }

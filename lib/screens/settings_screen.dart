@@ -5,6 +5,7 @@ import '../services/app_preferences_service.dart';
 import '../services/biometric_auth_service.dart';
 import '../services/database_service.dart';
 import '../widgets/onboarding_tour_sheet.dart';
+import '../services/excel_export_service.dart';
 import 'cards_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -151,6 +152,119 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     HapticFeedback.selectionClick();
     await AppPreferencesService.instance.setSilentNotificationEnabled(value);
     if (mounted) setState(() {});
+  }
+
+  Future<void> _recalculateTransactions() async {
+    HapticFeedback.mediumImpact();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.auto_fix_high_rounded, color: Color(0xFF8B5CF6)),
+            SizedBox(width: 8),
+            Text('Recalculate SMS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'This will re-run the updated parser rules across all previously saved SMS messages in your history. Any credit card bill repayments erroneously marked as Income will be corrected to Expense, and card associations will be refreshed.\n\nYour existing manual edits and custom categories will be preserved.',
+          style: TextStyle(fontSize: 13.5, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Start Recalculation'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Expanded(child: Text('Recalculating transactions...')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final result = await DatabaseService.instance.recalculateAllTransactions();
+    await _loadSettingsData();
+
+    if (mounted) {
+      Navigator.pop(context); // Dismiss progress
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
+              SizedBox(width: 8),
+              Text('Recalculation Complete', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('• Scanned ${result.totalScanned} SMS transactions'),
+              const SizedBox(height: 6),
+              Text('• Corrected ${result.cardDebitsCorrected} card payments (changed to Expense)'),
+              const SizedBox(height: 6),
+              Text('• Updated ${result.categoriesUpdated} categories / references'),
+              const SizedBox(height: 6),
+              Text('• Total updated: ${result.totalUpdated} records'),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _exportAllToExcel() async {
+    HapticFeedback.mediumImpact();
+    final allPayments = await DatabaseService.instance.getAllPayments();
+    if (allPayments.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No transactions to export.')),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Preparing Excel export for ${allPayments.length} transactions...')),
+      );
+    }
+
+    await ExcelExportService.exportAndDownload(allPayments);
   }
 
   @override
@@ -389,7 +503,54 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                         title: const Text('Learned Merchant Rules', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
                         subtitle: Text('$_customRulesCount custom rules saved for auto-categorization', style: const TextStyle(fontSize: 11.5)),
                       ),
+                      Divider(height: 1, color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9)),
+
+                      ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.auto_fix_high_rounded, color: Color(0xFF8B5CF6), size: 22),
+                        ),
+                        title: const Text('Recalculate SMS Transactions', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                        subtitle: const Text('Re-parse saved SMS to fix card debits, bill payments & categories', style: TextStyle(fontSize: 11.5)),
+                        trailing: const Icon(Icons.chevron_right_rounded, size: 18),
+                        onTap: _recalculateTransactions,
+                      ),
                     ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // SECTION: Data Management & Export
+                _buildSectionHeader(context, 'DATA & BACKUP'),
+                const SizedBox(height: 8),
+
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                    ),
+                  ),
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.table_chart_rounded, color: Color(0xFF10B981), size: 22),
+                    ),
+                    title: const Text('Download in Excel (CSV)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                    subtitle: const Text('Export all transactions to Excel spreadsheet format', style: TextStyle(fontSize: 11.5)),
+                    trailing: const Icon(Icons.file_download_outlined, size: 20),
+                    onTap: _exportAllToExcel,
                   ),
                 ),
 

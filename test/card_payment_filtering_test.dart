@@ -60,5 +60,16 @@ void main() {
       expect(res.payment?.category, 'Refund');
       expect(res.payment?.accountReference, 'ICICI Card XX7788');
     });
+
+    test('HDFC Bank Cardmember Online Payment credited to card is Expense', () {
+      const sms = 'HDFC Bank Cardmember, Online Payment of Rs.14951 vide Ref# 275064009GziCze was credited to your card ending 0321 On 02/OCT/2026_value Date 02/OCT/2026.';
+      final res = parser.parse(sms);
+
+      expect(res.isSuccess, isTrue);
+      expect(res.payment?.amount, 14951.0);
+      expect(res.payment?.type, TransactionType.debit, reason: 'Card payment credited to card is Expense, not income');
+      expect(res.payment?.paymentMode, PaymentMode.card);
+      expect(res.payment?.accountReference, 'HDFC Card 0321');
+    });
   });
 }

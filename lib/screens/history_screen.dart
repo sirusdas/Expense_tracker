@@ -15,6 +15,7 @@ import '../widgets/end_of_list_sync_prompt.dart';
 import '../widgets/sms_sync_dialog.dart';
 import '../widgets/sms_permission_disclosure_dialog.dart';
 import '../services/app_preferences_service.dart';
+import '../services/excel_export_service.dart';
 
 enum TimeFilterPreset {
   allTime,
@@ -50,6 +51,8 @@ class HistoryScreen extends StatefulWidget {
   final String? initialFilterType; // 'All', 'Expense', 'Income'
   final DateTime? initialMonth; // e.g. when navigated from Analytics
   final String? initialCard; // e.g. when navigated from Cards Analytics / Settings
+  final double? initialMinAmount;
+  final double? initialMaxAmount;
 
   const HistoryScreen({
     super.key,
@@ -57,6 +60,8 @@ class HistoryScreen extends StatefulWidget {
     this.initialFilterType,
     this.initialMonth,
     this.initialCard,
+    this.initialMinAmount,
+    this.initialMaxAmount,
   });
 
   @override
@@ -80,6 +85,8 @@ class HistoryScreenState extends State<HistoryScreen> {
   String _selectedFilterType = 'All'; // 'All', 'Expense', 'Income'
   TransactionSortOrder _selectedSortOrder = TransactionSortOrder.dateDesc;
   String? _selectedCard;
+  double? _minAmount;
+  double? _maxAmount;
 
   TimeFilterPreset _selectedTimePreset = TimeFilterPreset.allTime;
   DateTime? _filterMonth; // When a specific month is chosen (e.g. from Analytics)
@@ -117,7 +124,9 @@ class HistoryScreenState extends State<HistoryScreen> {
     if (widget.initialCategory != oldWidget.initialCategory ||
         widget.initialFilterType != oldWidget.initialFilterType ||
         widget.initialMonth != oldWidget.initialMonth ||
-        widget.initialCard != oldWidget.initialCard) {
+        widget.initialCard != oldWidget.initialCard ||
+        widget.initialMinAmount != oldWidget.initialMinAmount ||
+        widget.initialMaxAmount != oldWidget.initialMaxAmount) {
       _applyInitialFilters();
       _loadFilteredData();
     }
@@ -136,6 +145,10 @@ class HistoryScreenState extends State<HistoryScreen> {
     }
     if (widget.initialCard != null) {
       _selectedCard = widget.initialCard;
+    }
+    if (widget.initialMinAmount != null || widget.initialMaxAmount != null) {
+      _minAmount = widget.initialMinAmount;
+      _maxAmount = widget.initialMaxAmount;
     }
   }
 
@@ -243,6 +256,8 @@ class HistoryScreenState extends State<HistoryScreen> {
         startDate: startDate,
         endDate: endDate,
         cardReference: _selectedCard,
+        minAmount: _minAmount,
+        maxAmount: _maxAmount,
       );
 
       // Determine current loaded count to prevent list truncation on silent reloads
@@ -262,6 +277,8 @@ class HistoryScreenState extends State<HistoryScreen> {
         endDate: endDate,
         sortOrder: _selectedSortOrder,
         cardReference: _selectedCard,
+        minAmount: _minAmount,
+        maxAmount: _maxAmount,
       );
 
       if (mounted) {
@@ -298,6 +315,8 @@ class HistoryScreenState extends State<HistoryScreen> {
         endDate: endDate,
         sortOrder: _selectedSortOrder,
         cardReference: _selectedCard,
+        minAmount: _minAmount,
+        maxAmount: _maxAmount,
       );
 
       if (mounted) {
@@ -389,6 +408,8 @@ class HistoryScreenState extends State<HistoryScreen> {
       _selectedTimePreset = TimeFilterPreset.allTime;
       _selectedSortOrder = TransactionSortOrder.dateDesc;
       _selectedCard = null;
+      _minAmount = null;
+      _maxAmount = null;
       _filterMonth = null;
       _customDateRange = null;
     });
@@ -401,7 +422,198 @@ class HistoryScreenState extends State<HistoryScreen> {
         _selectedFilterType != 'All' ||
         _selectedTimePreset != TimeFilterPreset.allTime ||
         _selectedSortOrder != TransactionSortOrder.dateDesc ||
-        _selectedCard != null;
+        _selectedCard != null ||
+        _minAmount != null ||
+        _maxAmount != null;
+  }
+
+  String get _amountFilterLabel {
+    if (_minAmount == null && _maxAmount == null) return 'Amount';
+    if (_minAmount != null && _maxAmount != null) {
+      return '₹${NumberFormat.compact().format(_minAmount)} - ₹${NumberFormat.compact().format(_maxAmount)}';
+    }
+    if (_minAmount != null) {
+      return '≥ ₹${NumberFormat.compact().format(_minAmount)}';
+    }
+    return '≤ ₹${NumberFormat.compact().format(_maxAmount)}';
+  }
+
+  void _showAmountRangePickerSheet(BuildContext context) {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
+    final minController = TextEditingController(
+      text: _minAmount != null ? _minAmount!.toInt().toString() : '',
+    );
+    final maxController = TextEditingController(
+      text: _maxAmount != null ? _maxAmount!.toInt().toString() : '',
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            top: 16,
+            left: 20,
+            right: 20,
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white24 : Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Icon(Icons.currency_rupee_rounded, color: theme.colorScheme.primary, size: 22),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Filter by Amount Range',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Filter transactions by amount bracket or enter custom values.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Quick Presets
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildPresetChip('Any Amount', null, null, ctx),
+                      _buildPresetChip('Under ₹500', null, 500, ctx),
+                      _buildPresetChip('₹500 - ₹2,000', 500, 2000, ctx),
+                      _buildPresetChip('₹2,000 - ₹5,000', 2000, 5000, ctx),
+                      _buildPresetChip('₹5,000 - ₹10,000', 5000, 10000, ctx),
+                      _buildPresetChip('Above ₹10,000', 10000, null, ctx),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Divider(height: 1, color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                  const SizedBox(height: 16),
+
+                  // Custom Range Inputs
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: minController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          decoration: InputDecoration(
+                            labelText: 'Min Amount',
+                            prefixText: '₹ ',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: maxController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          decoration: InputDecoration(
+                            labelText: 'Max Amount',
+                            prefixText: '₹ ',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      if (_minAmount != null || _maxAmount != null)
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              Navigator.pop(ctx);
+                              setState(() {
+                                _minAmount = null;
+                                _maxAmount = null;
+                              });
+                              _loadFilteredData();
+                            },
+                            child: const Text('Reset Range'),
+                          ),
+                        ),
+                      if (_minAmount != null || _maxAmount != null)
+                        const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            Navigator.pop(ctx);
+                            final minVal = double.tryParse(minController.text.trim());
+                            final maxVal = double.tryParse(maxController.text.trim());
+                            setState(() {
+                              _minAmount = minVal;
+                              _maxAmount = maxVal;
+                            });
+                            _loadFilteredData();
+                          },
+                          child: const Text('Apply Filter'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPresetChip(String label, double? min, double? max, BuildContext ctx) {
+    final isSelected = _minAmount == min && _maxAmount == max;
+    return ChoiceChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: isSelected,
+      onSelected: (_) {
+        HapticFeedback.selectionClick();
+        Navigator.pop(ctx);
+        setState(() {
+          _minAmount = min;
+          _maxAmount = max;
+        });
+        _loadFilteredData();
+      },
+    );
   }
 
   void _showSortOrderPickerSheet(BuildContext context) {
@@ -849,6 +1061,56 @@ class HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  Future<void> _exportToExcel() async {
+    HapticFeedback.mediumImpact();
+    if (_payments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No transactions to export for the current filters.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Preparing Excel export for $_totalCount transaction${_totalCount == 1 ? '' : 's'}...'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+
+    // Fetch all matching filtered transactions (not just the first paginated page)
+    final (startDate, endDate) = _getDatesForCurrentPreset();
+    final allMatching = await DatabaseService.instance.getFilteredPaymentsPaginated(
+      limit: 10000,
+      offset: 0,
+      searchQuery: _searchQuery,
+      category: _selectedCategory,
+      type: _currentTransactionType,
+      startDate: startDate,
+      endDate: endDate,
+      sortOrder: _selectedSortOrder,
+      cardReference: _selectedCard,
+      minAmount: _minAmount,
+      maxAmount: _maxAmount,
+    );
+
+    final success = await ExcelExportService.exportAndDownload(
+      allMatching.isNotEmpty ? allMatching : _payments,
+      customFileName: 'Expense_Tracker_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv',
+    );
+
+    if (mounted && !success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not export transactions to Excel.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -862,6 +1124,11 @@ class HistoryScreenState extends State<HistoryScreen> {
           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download_outlined),
+            tooltip: 'Download in Excel',
+            onPressed: _exportToExcel,
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: AppPreferencesService.instance.obscureNotifier,
             builder: (context, isObscured, _) {
@@ -1153,6 +1420,55 @@ class HistoryScreenState extends State<HistoryScreen> {
                             ),
                             const SizedBox(width: 6),
 
+                            // Amount Range Filter Button
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _showAmountRangePickerSheet(context),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  height: 42,
+                                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                                  decoration: BoxDecoration(
+                                    color: (_minAmount != null || _maxAmount != null)
+                                        ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.22 : 0.12)
+                                        : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: (_minAmount != null || _maxAmount != null)
+                                          ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.5 : 0.35)
+                                          : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0)),
+                                      width: (_minAmount != null || _maxAmount != null) ? 1.2 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.currency_rupee_rounded,
+                                        size: 15,
+                                        color: (_minAmount != null || _maxAmount != null)
+                                            ? const Color(0xFF2563EB)
+                                            : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _amountFilterLabel,
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: (_minAmount != null || _maxAmount != null)
+                                              ? (isDark ? Colors.white : const Color(0xFF2563EB))
+                                              : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+
                             // Sort By Button
                             Material(
                               color: Colors.transparent,
@@ -1238,6 +1554,19 @@ class HistoryScreenState extends State<HistoryScreen> {
                                   _buildFilterChip(
                                     _timeFilterLabel,
                                     onDeleted: () => _onTimePresetChanged(TimeFilterPreset.allTime),
+                                    isDark: isDark,
+                                    theme: theme,
+                                  ),
+                                if (_minAmount != null || _maxAmount != null)
+                                  _buildFilterChip(
+                                    'Amount: $_amountFilterLabel',
+                                    onDeleted: () {
+                                      setState(() {
+                                        _minAmount = null;
+                                        _maxAmount = null;
+                                      });
+                                      _loadFilteredData();
+                                    },
                                     isDark: isDark,
                                     theme: theme,
                                   ),

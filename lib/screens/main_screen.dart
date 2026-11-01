@@ -30,6 +30,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _historyType;
   DateTime? _historyMonth;
   String? _historyCard;
+  double? _historyMinAmount;
+  double? _historyMaxAmount;
 
   @override
   void initState() {
@@ -125,6 +127,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       _historyType = type == TransactionType.debit ? 'Expense' : 'Income';
       _historyMonth = month;
       _historyCard = null;
+      _historyMinAmount = null;
+      _historyMaxAmount = null;
       _selectedIndex = 1; // Switch to History tab
     });
   }
@@ -133,6 +137,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     HapticFeedback.mediumImpact();
     setState(() {
       _historyCard = cardName;
+      _historyCategory = null;
+      _historyType = null;
+      _historyMonth = month;
+      _historyMinAmount = null;
+      _historyMaxAmount = null;
+      _selectedIndex = 1; // Switch to History tab
+    });
+  }
+
+  void _navigateToHistoryWithAmountRange(double? min, double? max, DateTime month) {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _historyMinAmount = min;
+      _historyMaxAmount = max;
+      _historyCard = null;
       _historyCategory = null;
       _historyType = null;
       _historyMonth = month;
@@ -187,10 +206,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             initialFilterType: _historyType,
             initialMonth: _historyMonth,
             initialCard: _historyCard,
+            initialMinAmount: _historyMinAmount,
+            initialMaxAmount: _historyMaxAmount,
           ),
           StatisticsScreen(
             onCategorySelected: _navigateToHistoryWithFilters,
             onCardSelected: _navigateToHistoryWithCard,
+            onAmountRangeSelected: _navigateToHistoryWithAmountRange,
           ),
         ],
       ),
